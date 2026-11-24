@@ -1,7 +1,6 @@
 """Étapes communes à toutes les pages du tableau de bord."""
 import streamlit as st
 
-from auth import require_login
 from components import theme
 from services.data_loader import SITES
 
@@ -13,9 +12,8 @@ def current_site():
 
 
 def setup():
-    """Charte, protection par connexion et site courant. Retourne le site courant."""
+    """Charte et site courant. Retourne le site courant."""
     theme.inject()
-    require_login()
     return current_site()
 
 

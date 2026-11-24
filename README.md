@@ -19,17 +19,15 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-L'application s'ouvre sur `http://localhost:8501`. Créez un compte depuis la page **Connexion**, puis ouvrez le tableau de bord.
+L'application s'ouvre sur `http://localhost:8501`. Le tableau de bord est accessible directement, sans connexion.
 
 ## Structure
 
 ```
 SolarScope AI/
 ├── app.py                   # point d'entrée, navigation, sélecteur de site
-├── auth.py                  # comptes locaux (mot de passe haché, users.json)
 ├── pages/
 │   ├── home.py              # accueil
-│   ├── login.py             # connexion / création de compte
 │   ├── 1_Vue_generale.py    # KPI, carte, comparaison des sites
 │   ├── 2_Prevision.py       # Q10 / Q50 / Q90 vs observé, zoom, filtre de période, export CSV
 │   ├── 3_Sites_climat.py    # carte, climat, performance par site
@@ -72,9 +70,7 @@ Chaque script refait ses calculs (environ une à deux minutes au total).
 
 ## Limites connues
 
-- **Authentification locale** : les comptes sont stockés dans `users.json`, avec mot de passe haché. Ce mécanisme convient à une démonstration, pas à une mise en production. Ne partagez pas ce fichier.
 - **« Se souvenir de moi »** : non implémenté. Streamlit n'offre pas de stockage persistant côté navigateur sans composant tiers.
-- **Connexion Google** : non affichée, car aucun fournisseur OAuth n'est configuré.
 - **Historiques d'optimisation** : exportés pour Monastir seulement (axes 1 et 3, et le sous-gradient de l'axe 2 pour τ = 0,5).
 - **Calibration CQR et ACI** : exportées pour Monastir seulement. La couverture par graine est disponible pour les trois sites.
 - **Analyse de régularisation** (λ ∈ {0 ; 10⁻³ ; 10⁻² ; 10⁻¹}) et historiques des quantiles Q10 et Q90 : non exportés, signalés comme tels dans l'application.

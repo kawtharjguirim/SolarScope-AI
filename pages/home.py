@@ -1,11 +1,9 @@
 import streamlit as st
 
-from auth import current_user
 from components import theme
 from services.data_loader import QUANTILES, TARGET_COVERAGE, site_meta
 
 theme.inject()
-user = current_user()
 meta = site_meta()
 
 theme.brand()
@@ -27,19 +25,11 @@ with left:
     )
     b1, b2 = st.columns(2)
     with b1:
-        if user is None:
-            st.page_link("pages/login.py", label="Explorer la plateforme", icon=":material/arrow_forward:",
-                         width="stretch")
-        else:
-            st.page_link("pages/1_Vue_generale.py", label="Ouvrir le tableau de bord",
-                         icon=":material/arrow_forward:", width="stretch")
+        st.page_link("pages/1_Vue_generale.py", label="Explorer la plateforme",
+                     icon=":material/arrow_forward:", width="stretch")
     with b2:
-        if user is None:
-            st.page_link("pages/login.py", label="Créer un compte", icon=":material/person_add:",
-                         width="stretch")
-        else:
-            st.page_link("pages/7_A_propos.py", label="Découvrir le projet", icon=":material/explore:",
-                         width="stretch")
+        st.page_link("pages/7_A_propos.py", label="Découvrir le projet", icon=":material/explore:",
+                     width="stretch")
 
 st.write("")
 c1, c2, c3 = st.columns(3)
