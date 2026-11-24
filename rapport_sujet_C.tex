@@ -1,0 +1,475 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{setspace}
+\usepackage{caption}
+\usepackage{tikz}
+\onehalfspacing
+
+\newtheorem{theorem}{Théorème}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemme}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remarque}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Définition}
+
+\DeclareMathOperator{\prox}{prox}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\pinball}{\rho_\tau}
+\newcommand{\T}{^{\top}}
+
+\begin{document}
+
+%% ------------------------------------------------------------------ PAGE DE GARDE
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay]
+  \node[anchor=north west,inner sep=0] at (current page.north west)
+    {\includegraphics[width=\paperwidth,height=\paperheight]{fond_garde.png}};
+  % En-tête (sous le logo ESPRIM)
+  \node[anchor=north,align=center,text width=15cm] at ([yshift=-9.9cm,xshift=10.5cm]current page.north west)
+    {\large\bfseries Rapport de projet\\[2pt]
+     \normalsize Optimisation pour le Machine Learning --- 5e année Data Sciences et IA};
+  % Titre du projet
+  \node[anchor=north,align=center,text width=16cm] at ([yshift=-11.6cm,xshift=10.5cm]current page.north west)
+    {\Large\bfseries Prévision probabiliste de l'énergie solaire en Afrique\\[5pt]
+     \large Régression quantile sous contraintes physiques};
+  % Année universitaire
+  \node[anchor=north,align=center] at ([yshift=-14.6cm,xshift=10.5cm]current page.north west)
+    {\bfseries Année universitaire 2026 / 2027};
+  % Auteurs et encadrant
+  \node[anchor=north,align=center,text width=16cm] at ([yshift=-17.5cm,xshift=10.5cm]current page.north west)
+    {\textbf{Réalisé par :}\\[2pt]
+     Kawthar Jguirim, Ons Bel Hej Saleh, Mouheb Sayadi,\\
+     Yosr Bhouri, Mohamed Abidi};
+  \node[anchor=north,align=center] at ([yshift=-20.3cm,xshift=10.5cm]current page.north west)
+    {\textbf{Encadrant :} Bilel Charfi};
+  \node[anchor=north,align=center] at ([yshift=-22.4cm,xshift=10.5cm]current page.north west)
+    {\small Module : Optimisation pour le Machine Learning\\[2pt]
+     \small Date de soutenance : \textit{à compléter}};
+  \node[anchor=south,align=center] at ([yshift=2.2cm,xshift=10.5cm]current page.south west)
+    {\small École Supérieure Privée d'Ingénieurs de Monastir};
+\end{tikzpicture}
+\end{titlepage}
+
+%% ------------------------------------------------------------------ RESUME
+\section*{Résumé}
+Ce rapport présente la prévision probabiliste du rayonnement solaire journalier (\texttt{ALLSKY\_SFC\_SW\_DWN}, en kWh/m$^2$/j)
+pour le lendemain, sur trois sites d'Afrique du Nord et de l'Ouest (Monastir, Tamanrasset, Dakar). La prévision est fournie
+sous forme de trois quantiles ($\tau = 0{,}1$ ; $0{,}5$ ; $0{,}9$), à partir de données NASA POWER de 2014 à juin 2026.
+Quatre axes sont traités : (1) régression ridge et descente à pas fixe, pas exact, Armijo, Wolfe et gradient conjugué ;
+(2) régression quantile non dérivable, par sous-gradient projeté, lissage de Moreau et Newton amorti ;
+(3) optimisation sous contraintes de non-croisement et de bornes de ciel clair, par dualité et lagrangien augmenté ;
+(4) piste R3 : prédiction conforme (CQR et ACI). Les algorithmes sont écrits à la main en NumPy ; scikit-learn, SciPy et cvxpy
+ne servent qu'à la vérification.
+
+Principaux résultats : le ridge bat la prévision naïve sur les trois sites (RMSE réduite de 12 à 22 \%) ; le lagrangien
+augmenté impose les contraintes en 5 itérations externes ; la régression quantile sans contrainte dépasse le ciel clair sur 71 \% des jours
+d'apprentissage à Monastir, ce qui la rend physiquement incohérente ; CQR porte la couverture de l'intervalle à 80 \% à 81,1 \% à Monastir,
+mais seulement à 76,7 \% à Tamanrasset, où la calibration ne reflète pas bien le test.
+
+%% ------------------------------------------------------------------ INTRO
+\clearpage
+\tableofcontents
+\clearpage
+
+%% ------------------------------------------------------------------ INTRODUCTION GENERALE
+\section{Introduction générale}
+\subsection{Contexte et problème}
+Une centrale solaire produit d'autant plus d'électricité que le rayonnement reçu au sol est fort. L'opérateur du réseau doit
+décider la veille du niveau de production attendu : s'il surestime le rayonnement, il manque d'électricité ; s'il le sous-estime,
+il brûle du combustible inutilement. Une prévision ponctuelle ne suffit donc pas : il faut une fourchette.
+
+Nous prévoyons $Y_t = \mathrm{ALLSKY}(t+1)$ à partir des variables connues le jour $t$ (température, humidité, vent, pression,
+précipitations, nébulosité, trois jours de rayonnement passé et saisonnalité). La borne physique $c_t = \mathrm{CLRSKY}(t+1)$, rayonnement
+par ciel clair calculé astronomiquement, sert de contrainte supérieure ; elle n'est jamais une variable explicative.
+
+\subsection{Objectifs}
+Les objectifs fixés par le cahier sont : formuler chaque problème et dire s'il admet une solution unique ; choisir un algorithme
+et ses réglages grâce à la théorie, puis vérifier la vitesse observée ; livrer une prévision probabiliste par site ; comparer les sites
+et argumenter les conclusions.
+
+\subsection{Organisation du rapport}
+La section~\ref{sec:etat} rappelle l'état de l'art. La section~\ref{sec:donnees} décrit les données et les règles d'absence de fuite.
+Les sections~\ref{sec:ax1}, \ref{sec:ax2} et \ref{sec:ax3} traitent les axes 1 à 3 avec leurs démonstrations, la section~\ref{sec:ax4}
+la piste R3, et la section~\ref{sec:disc} discute les résultats et leurs limites.
+
+%% ------------------------------------------------------------------ ETAT DE L'ART
+\section{État de l'art}\label{sec:etat}
+\paragraph{Régression quantile.} Koenker et Bassett (1978) introduisent la régression quantile : minimiser la perte pinball
+$\pinball(r) = \max(\tau r, (\tau-1)r)$ donne un estimateur du $\tau$-quantile conditionnel. Cette perte est convexe mais non dérivable.
+Koenker (2005) en donne la théorie et les algorithmes de programmation linéaire.
+
+\paragraph{Lissage et sous-gradient.} Le lissage de Moreau remplace une fonction convexe par son enveloppe, dont le gradient est
+lipschitzien. Shor (1985) et Nemirovski et Yudin (1983) analysent la méthode du sous-gradient projeté ; Lacoste-Julien, Schmidt et Bach (2012)
+donnent une vitesse $O(1/k)$ avec moyenne pondérée des itérés pour les fonctions fortement convexes.
+
+\paragraph{Optimisation sous contraintes.} Les conditions de Karush, Kuhn et Tucker (KKT) caractérisent les solutions. Le dual
+d'un problème fortement convexe est lisse ; la montée de gradient projeté sur le dual converge en $O(1/k)$, et le lagrangien augmenté
+(Hestenes 1969 ; Powell 1969 ; Rockafellar 1973) évite la mauvaise conditionnement du dual.
+
+\paragraph{Prévision conforme.} Vovk et al. (2005) proposent la prédiction conforme ; Romano, Patterson et Candès (2019) introduisent CQR,
+qui combine régression quantile et calibration. Gibbs et Candès (2021) proposent ACI, une mise à jour en ligne du niveau de couverture avec une borne
+sur la couverture moyenne.
+
+\paragraph{Données et climat.} NASA POWER fournit des données journalières de rayonnement et de météorologie sur grille, sans compte.
+La classification de Köppen-Geiger est recalculée selon Beck et al. (2018) à partir des moyennes mensuelles 1991--2020.
+
+%% ------------------------------------------------------------------ DONNEES
+\section{Données et méthodologie}\label{sec:donnees}
+\subsection{Sites et période}
+Trois sites sont retenus, pour contraste climatique : Monastir (Tunisie, 35,78\textdegree{}N ; 10,83\textdegree{}E), Tamanrasset (Algérie, 22,79\textdegree{}N ; 5,52\textdegree{}E),
+et Dakar (Sénégal, 14,69\textdegree{}N ; $-17{,}44$\textdegree{}E). Les données couvrent 2014-01-01 à 2026-06-30, soit 4\,564 jours sans lacune ni doublon.
+L'apprentissage porte sur les cibles de 2014 à 2023 (3\,649 jours), le test sur les cibles de 2024 à juin 2026 (912 jours).
+
+\subsection{Classification climatique}
+La classe de Köppen-Geiger de chaque site est donnée par la carte de Beck et al. (2018), via kgcpy : Monastir BSh, Tamanrasset BWh, Dakar BSh.
+Le recalcul à partir des moyennes NASA 1991--2020 (critères de Beck et al.) donne les mêmes classes, sans écart à expliquer.
+
+\subsection{Variables et absence de fuite}
+Les entrées du jour $t$ sont : $T_2M$, $T_2M_{\max}$, $T_2M_{\min}$, $RH_{2M}$, $WS_{2M}$, $PS$, $PRECTOTCORR$, $CLOUD\_AMT$,
+trois valeurs de rayonnement ($t$, $t-1$, $t-2$) et deux termes de saisonnalité ($\sin$, $\cos$ du jour de l'année).
+La cible est $Y_t = \mathrm{ALLSKY}(t+1)$. Les règles suivantes évitent toute information future :
+\begin{itemize}[itemsep=2pt]
+\item la séparation apprentissage/test se fait sur la date de la cible : la ligne du 31/12/2023 prévoit le 01/01/2024 et appartient donc au test ;
+\item le centrage de la cible, la standardisation et l'imputation des valeurs manquantes (propagation vers l'avant) n'utilisent que l'apprentissage ;
+\item $c_t = \mathrm{CLRSKY}(t+1)$ n'est utilisée que comme borne.
+\end{itemize}
+La matrice de conception $A \in \R^{n\times d}$ contient une colonne de 1 ajoutée après standardisation, donc $d = 14$ pour les axes 1 à 3.
+
+%% ------------------------------------------------------------------ AXE 1
+\section{Axe 1 : régression ridge}\label{sec:ax1}
+\subsection{Problème et constantes}
+On minimise
+\begin{equation}\label{eq:ridge}
+f(w) = \frac{1}{2n}\|Aw - y\|^2 + \frac{\lambda}{2}\|w\|^2, \qquad \lambda = 10^{-2}.
+\end{equation}
+Le gradient est $\nabla f(w) = \frac1n A\T(Aw-y) + \lambda w$ et la hessienne $H = \frac1n A\T A + \lambda I$.
+
+\begin{proposition}[Existence, unicité, constantes]\label{prop:ridge}
+Soit $\mu = \lambda_{\min}(H)$ et $L = \lambda_{\max}(H)$. Alors $f$ est $\mu$-fortement convexe, $\nabla f$ est $L$-lipschitzien,
+$f$ admet un unique minimiseur $w^\star = H^{-1} A\T y / n$, et $\kappa = L/\mu$.
+En particulier, $\mu \ge \lambda > 0$ pour $\lambda > 0$, et pour $\lambda = 0$, $\mu = \lambda_{\min}(A\T A / n) > 0$ dès que $A$ est de rang plein.
+\end{proposition}
+\begin{proof}
+La hessienne est $H \succeq \lambda I \succ 0$, donc $f$ est fortement convexe de module $\mu$, et $\nabla f$ est $L$-lipschitzien car $\|H\|_2 = L$.
+Le minimiseur vérifie $\nabla f(w^\star) = 0$, soit $H w^\star = A\T y / n$, d'où l'expression. L'unicité découle de la stricte convexité.
+\end{proof}
+
+\subsection{Descente à pas fixe et vitesse}
+\begin{proposition}[Vitesse à pas fixe]\label{prop:fixe}
+Pour $w_{k+1} = w_k - \alpha\nabla f(w_k)$ avec $0 < \alpha < 2/L$, on a
+$w_{k+1} - w^\star = (I - \alpha H)(w_k - w^\star)$ et
+\[
+f(w_k) - f^\star \le \rho(\alpha)^{2k}\,\bigl(f(w_0) - f^\star\bigr), \qquad \rho(\alpha) = \max\bigl(|1-\alpha\mu|,\,|1-\alpha L|\bigr).
+\]
+Le pas optimal est $\alpha = 2/(L+\mu)$, pour lequel $\rho = (\kappa-1)/(\kappa+1)$. Le pas $\alpha = 1/L$ donne $\rho = 1-1/\kappa$.
+\end{proposition}
+\begin{proof}
+Le gradient vaut $\nabla f(w) = H(w - w^\star)$, donc $w_{k+1} - w^\star = (I-\alpha H)(w_k-w^\star)$. Dans une base propre de $H$,
+$f(w) - f^\star = \frac12 (w-w^\star)\T H (w-w^\star)$, et chaque composante propre $\lambda_i \in [\mu, L]$ est multipliée par $(1-\alpha\lambda_i)^{2}$ après $k$ itérations au carré.
+Le maximum sur $\lambda_i$ de $|1-\alpha\lambda_i|$ est $\rho(\alpha)$, d'où la borne. Minimiser $\rho(\alpha)$ en $\alpha$ donne $\alpha = 2/(L+\mu)$.
+\end{proof}
+
+\begin{remark}
+Le nombre d'itérations pour diviser l'écart par $10^6$ est $k \approx \ln(10^6)/(-2\ln\rho)$, soit environ $6{,}9\,\kappa$ pour $\alpha = 1/L$
+et $3{,}5\,\kappa$ pour $\alpha = 2/(L+\mu)$. C'est une borne au pire cas : elle est atteinte seulement si l'erreur initiale a une composante
+dans la direction de courbure $\mu$.
+\end{remark}
+
+\subsection{Pas exact, Armijo, Wolfe}
+\begin{proposition}[Pas exact et Armijo]\label{prop:exact}
+Le pas exact $\alpha_k = \|g_k\|^2 / (g_k\T H g_k)$ satisfait la condition d'Armijo $f(w_k - \alpha_k g_k) \le f(w_k) - c_1\alpha_k\|g_k\|^2$
+pour tout $c_1 \le 1/2$.
+\end{proposition}
+\begin{proof}
+Sur une quadratique, $\varphi(\alpha) = f(w - \alpha g) = f(w) - \alpha\|g\|^2 + \frac{\alpha^2}{2} g\T H g$. En $\alpha_k$,
+$\varphi(\alpha_k) = f(w) - \frac{\|g\|^4}{2\,g\T H g}$. Or $\alpha_k\|g\|^2 = \|g\|^4/(g\T H g)$, donc $\varphi(\alpha_k) = f(w) - \tfrac12\alpha_k\|g\|^2$,
+ce qui est $\le f(w) - c_1\alpha_k\|g\|^2$ dès que $c_1 \le 1/2$.
+\end{proof}
+Les recherches d'Armijo (rétrécissement de $1$, $c_1 = 10^{-4}$) et de Wolfe forte ($c_1 = 10^{-4}$, $c_2 = 0{,}9$, par encadrement puis dichotomie)
+sont implémentées dans le notebook et comptées en évaluations de $f$ et de gradient.
+
+\subsection{Gradient conjugué}
+Le gradient conjugué résout $Hw = A\T y/n$ et atteint, après $k$ itérations, une erreur d'énergie
+$\|e_k\|_H \le 2\bigl(\tfrac{\sqrt\kappa-1}{\sqrt\kappa+1}\bigr)^k\|e_0\|_H$. Pour un écart de $10^{-6}$ sur $f$ (soit $10^{-3}$ sur $\|e\|_H$), le nombre
+d'itérations est donc de l'ordre de $\tfrac12\sqrt\kappa\,\ln(2\cdot10^3)$.
+
+\subsection{Équivalence avec scikit-learn}
+\begin{proposition}\label{prop:sk}
+Soit $\alpha_{sk} = n\lambda$ et \texttt{fit\_intercept=False} dans \texttt{sklearn.linear\_model.Ridge}. Alors la solution de \texttt{Ridge} est $w^\star$.
+\end{proposition}
+\begin{proof}
+\texttt{Ridge} minimise $\|y - Aw\|^2 + \alpha_{sk}\|w\|^2$. Multiplier $f$ par $2n$ donne $\|Aw-y\|^2 + n\lambda\|w\|^2$.
+Les deux problèmes ont donc les mêmes minimiseurs si $\alpha_{sk} = n\lambda$. L'intercept est déjà la colonne de 1 de $A$, d'où \texttt{fit\_intercept=False}.
+\end{proof}
+
+\subsection{Résultats (Monastir, $\lambda = 10^{-2}$)}
+\begin{table}[h]\centering
+\begin{tabular}{lrrr}
+\toprule
+Méthode & Itérations prédites & Itérations observées & Évaluations \\
+\midrule
+Pas fixe $1/L$ & 3\,895 & 858 & 0 \\
+Pas fixe $2/(L+\mu)$ & 1\,950 & 1\,915 & 0 \\
+Pas exact & 1\,950 & 273 & 0 \\
+Armijo & -- & 391 & 643 \\
+Wolfe & -- & 391 & 1\,260 \\
+Gradient conjugué & 91 & 14 & 0 \\
+\bottomrule
+\end{tabular}
+\caption{Itérations pour diviser $f - f^\star$ par $10^6$. Les prédictions sont des bornes au pire cas.}
+\end{table}
+Pour $\lambda = 10^{-2}$, $\kappa = 564{,}3$ ($L = 6{,}402$, $\mu = 0{,}01134$). L'écart entre le ridge de la proposition~\ref{prop:sk} et \texttt{Ridge} vaut $6\cdot10^{-15}$
+sur les coefficients. Le préconditionnement diagonal ne change pas $\kappa$ (la diagonale de $H$ vaut 1{,}01 partout) : pas de gain.
+La prévision ridge atteint une RMSE de 0,939 kWh/m$^2$/j contre 1,204 pour la prévision naïve.
+
+%% ------------------------------------------------------------------ AXE 2
+\section{Axe 2 : régression quantile}\label{sec:ax2}
+\subsection{Problème, sous-différentiel, unicité}
+Pour $\tau \in \{0{,}1 ; 0{,}5 ; 0{,}9\}$, on minimise
+\begin{equation}\label{eq:quant}
+F(w) = \frac1n\sum_{t=1}^n \pinball(y_t - a_t\T w) + \frac\lambda2\|w\|^2.
+\end{equation}
+Le sous-différentiel de $\pinball$ est $\{\tau\}$ si $r>0$, $\{\tau-1\}$ si $r<0$, et $[\tau-1,\tau]$ si $r=0$.
+Pour $\psi_t \in \partial\pinball(r_t)$, un sous-gradient de $F$ est $g(w) = -\frac1n\sum_t \psi_t a_t + \lambda w$.
+
+\begin{proposition}\label{prop:quant}
+$F$ est $\lambda$-fortement convexe et coercive. Elle admet un unique minimiseur $w^\star$, et $\|w^\star\| \le R := \sqrt{2F(0)/\lambda}$.
+\end{proposition}
+\begin{proof}
+$\pinball$ est convexe, donc $F$ est la somme d'une fonction convexe et de $\frac\lambda2\|w\|^2$, donc $\lambda$-fortement convexe.
+Comme $F(w^\star) \le F(0)$ et $\frac\lambda2\|w^\star\|^2 \le F(w^\star) - \min_w \frac1n\sum\pinball \le F(0)$, on obtient la borne sur $\|w^\star\|$.
+\end{proof}
+
+\subsection{Sous-gradient projeté}
+Sur la boule de rayon $R$, $\|g\| \le G := \max_t\|a_t\|\cdot\max(\tau,1-\tau) + \lambda R$. L'algorithme est
+\[
+w_{t+1} = \Pi_R\bigl(w_t - \eta_t g_t\bigr), \qquad \eta_t = \frac{2}{\lambda(t+1)}, \qquad \bar w_T = \frac{\sum_{t=1}^T t\,w_t}{\sum_{t=1}^T t}.
+\]
+\begin{theorem}\label{thm:subgrad}
+Pour $\mu = \lambda$ et $\eta_t = 2/(\mu(t+1))$, on a $F(\bar w_T) - F^\star \le \dfrac{2G^2}{\mu(T+1)}$.
+\end{theorem}
+\begin{proof}[Esquisse]
+C'est la borne de Lacoste-Julien, Schmidt et Bach (2012), appliquée à une fonction $\mu$-fortement convexe dont les sous-gradients sont bornés par $G$ sur l'ensemble admissible.
+La moyenne pondérée par $t$ est celle qui donne le terme en $1/T$. Nous ne reproduisons pas la preuve complète.
+\end{proof}
+
+\subsection{Lissage de Moreau}
+Soit $\varepsilon > 0$. L'enveloppe de Moreau de $\pinball$ est
+\[
+M_\varepsilon(r) = \begin{cases}\tau r - \varepsilon\tau^2/2, & r > \varepsilon\tau,\\[2pt] r^2/(2\varepsilon), & \varepsilon(\tau-1) \le r \le \varepsilon\tau,\\[2pt] (\tau-1) r - \varepsilon(1-\tau)^2/2, & r < \varepsilon(\tau-1).\end{cases}
+\]
+\begin{proposition}\label{prop:moreau}
+$M_\varepsilon$ est convexe, de dérivée $M'_\varepsilon(r) \in [\tau-1,\tau]$ $1/\varepsilon$-lipschitzienne, et
+$0 \le \pinball(r) - M_\varepsilon(r) \le \varepsilon\max(\tau,1-\tau)^2/2$.
+\end{proposition}
+\begin{proof}
+$M_\varepsilon(r) = \min_u\{\pinball(u) + (r-u)^2/(2\varepsilon)\}$, donc la minimisation de $u$ donne $u = r - \varepsilon\tau$ si $r > \varepsilon\tau$,
+$u = r + \varepsilon(1-\tau)$ si $r < \varepsilon(\tau-1)$, et $u = 0$ sinon, ce qui reproduit les trois cas. La dérivée est $\tau$, $r/\varepsilon$ ou $\tau-1$, d'où la lipschitzianité.
+Pour l'écart, $\pinball - M_\varepsilon$ est constante égale à $\varepsilon\tau^2/2$ (ou $\varepsilon(1-\tau)^2/2$) dans chaque queue et nulle au centre, donc majorée.
+\end{proof}
+La fonction $F_\varepsilon(w) = \frac1n\sum M_\varepsilon(y_t - a_t\T w) + \frac\lambda2\|w\|^2$ est $\lambda$-fortement convexe, de gradient $L_\varepsilon$-lipschitzien avec
+$L_\varepsilon = \lambda_{\max}(A\T A/n)/\varepsilon + \lambda$, et $|F - F_\varepsilon| \le \varepsilon\max(\tau,1-\tau)^2/2$.
+
+\subsection{Newton amorti et identité d'intercept}
+La hessienne de $F_\varepsilon$ vaut $H_\varepsilon(w) = \frac1{n\varepsilon}A\T D_\varepsilon(w) A + \lambda I \succeq \lambda I$, où $D_\varepsilon$ est la matrice diagonale
+des indicateurs de $\{\varepsilon(\tau-1) \le r_t \le \varepsilon\tau\}$. Elle est donc toujours inversible : le pas de Newton amorti est défini,
+avec convergence globale linéaire et locale plus rapide.
+
+\begin{proposition}[Identité d'intercept]\label{prop:intercept}
+Notons $w_0$ la composante d'intercept (dernière coordonnée). En $w^\star$, $\frac1n\#\{r_t<0\} \approx \tau - \lambda w_0^\star$, plus précisément
+$\lambda w_0^\star \in \bigl[\tfrac1n(\tau n_+ + (\tau-1)(n_- + n_0)),\ \tfrac1n(\tau(n_+ + n_0) + (\tau-1)n_-)\bigr]$, où $n_+$, $n_-$, $n_0$ comptent les résidus positifs,
+négatifs et proches de 0.
+\end{proposition}
+\begin{proof}
+La condition $0 \in \partial F(w^\star)$ s'écrit $\frac1n\sum_t\psi_t a_t = \lambda w^\star$. La dernière composante de $a_t$ vaut 1, donc $\frac1n\sum_t\psi_t = \lambda w_0^\star$.
+Les résidus positifs donnent $\psi_t = \tau$, les négatifs $\tau-1$, et les résidus nuls $\psi_t \in [\tau-1,\tau]$ librement.
+\end{proof}
+
+\subsection{Résultats (Monastir)}
+\begin{table}[h]\centering
+\begin{tabular}{lrrr}
+\toprule
+Quantile $\tau$ & $F^\star$ (cvxpy) & Écart Newton ($\varepsilon=10^{-3}$) & Part des résidus négatifs \\
+\midrule
+0,1 & 0,186095 & $4{,}3\cdot10^{-7}$ & 0,10962 \\
+0,5 & 0,300670 & $1{,}6\cdot10^{-7}$ & 0,49767 \\
+0,9 & 0,110733 & $4{,}4\cdot10^{-7}$ & 0,89230 \\
+\bottomrule
+\end{tabular}
+\caption{Référence cvxpy (CLARABEL, tolérance $10^{-10}$) et précision de Newton amorti. La part de résidus négatifs vérifie
+l'identité d'intercept à la précision du solveur.}
+\end{table}
+Le sous-gradient projeté atteint $F(\bar w) - F^\star = 1{,}4\cdot10^{-7}$ en $20\,000$ itérations, alors que la borne du théorème~\ref{thm:subgrad} vaut $1{,}57$.
+La borne est très lâche : la moyenne pondérée suffit en pratique. Pour le lissage, la descente à pas fixe n'atteint pas le critère en $20\,000$ itérations
+pour $\varepsilon \le 0{,}1$, alors que Newton amorti converge en 10 à 50 itérations.
+À budget égal de $7{,}3$ millions de lignes, les mini-lots de taille 64 atteignent $4{,}3\cdot10^{-6}$, contre $5{,}6\cdot10^{-5}$ pour le déterministe.
+Pour $\lambda = 0$, le programme linéaire donne la même valeur que \texttt{QuantileRegressor(alpha=0)} et que cvxpy, à $10^{-15}$ près.
+Les trois quantiles ne se croisent jamais sur le test à Monastir ; la couverture de $q_{0,1}$ et $q_{0,9}$ vaut 12,3 \% et 91,0 \%.
+
+%% ------------------------------------------------------------------ AXE 3
+\section{Axe 3 : optimisation sous contraintes}\label{sec:ax3}
+\subsection{Formulation}
+On note $W = (w_{0,1}, w_{0,5}, w_{0,9}) \in \R^{3d}$ et
+\[
+\min_W \Phi(W) = \sum_\tau F_\tau(w_\tau) \quad \text{s.c.}\quad CW \le b,
+\]
+où les $8n$ lignes de $C$ sont : non-croisement $a_t\T(w_{0,1} - w_{0,5}) \le 0$ et $a_t\T(w_{0,5} - w_{0,9}) \le 0$ ; minimum $-a_t\T w_\tau \le \mu_y$ ;
+maximum $a_t\T w_\tau \le c_t - \mu_y$, pour $\tau \in \{0,1 ; 0,5 ; 0,9\}$. Ici $\mu_y$ est la moyenne de la cible d'apprentissage.
+La contrainte de borne traduit $0 \le q_\tau \le c_t$ pour les quantiles bruts $q_\tau = a_t\T w_\tau + \mu_y$.
+
+\begin{proposition}[Existence et unicité]
+Le problème admet une solution unique $W^\star$. Le point $W_0$ dont chaque $w_\tau$ n'a que l'intercept non nul, égal à $k_\tau - \mu_y$ avec
+$k_\tau = (0{,}25\,;\,0{,}5\,;\,0{,}75)\cdot\min_t c_t$, est strictement admissible : la contrainte de non-croisement y est $k_{0,1} - k_{0,5} < 0$, les bornes $k_\tau > 0$ et $k_\tau < c_t$.
+\end{proposition}
+\begin{proof}
+$\Phi$ est $\lambda$-fortement convexe et l'ensemble admissible est un polyèdre convexe fermé non vide ; donc le minimiseur existe et est unique.
+Pour Monastir, $\min_t c_t = 2{,}052$ kWh/m$^2$/j, donc $W_0$ a une marge minimale de $0{,}513$ : la condition de Slater est satisfaite.
+\end{proof}
+
+\subsection{KKT et dualité}
+\begin{proposition}[Conditions KKT]
+$W^\star$ est optimal si et seulement s'il existe $\nu^\star \ge 0$ tel que $\nabla\Phi(W^\star) + C\T\nu^\star = 0$ (au sens du sous-différentiel),
+$CW^\star \le b$, et $\nu^\star_i (CW^\star - b)_i = 0$ pour tout $i$. La dualité forte tient par Slater.
+\end{proposition}
+Le dual $g(\nu) = \min_W\{\Phi(W) + \nu\T(CW-b)\}$ est concave, et son gradient $\nabla g(\nu) = CW(\nu) - b$ est lipschitzien de constante
+$L_d = \|C\|_2^2/\lambda$ : le primal est $\lambda$-fortement convexe.
+
+\subsection{Algorithmes}
+La montée de gradient projeté sur le dual utilise le pas $1/L_d$ ; la variante de Nesterov accélère la convergence. Le lagrangien augmenté
+minimise $\Phi(W) + \frac1{2\rho}\sum_i\bigl[(\nu_i + \rho(CW-b)_i)_+^2 - \nu_i^2\bigr]$ en $W$ puis met à jour $\nu \leftarrow (\nu + \rho(CW-b))_+$.
+Le paramètre $\rho$ est pris égal à $L_\varepsilon$, courbure du primal lissé ; ce choix est une règle de notre part, non imposée par le cahier.
+La minimisation interne est faite par Newton amorti, avec hessienne généralisée $\rho C\T D C$ où $D$ indique les contraintes actives.
+
+\subsection{Résultats (Monastir)}
+\begin{table}[h]\centering
+\begin{tabular}{lrr}
+\toprule
+Méthode & Itérations & Violation finale \\
+\midrule
+Dual projeté (pas $1/L_d$) & 20\,000 (plafond) & $2{,}6$ \\
+Dual accéléré (Nesterov) & 20\,000 (plafond) & $4{,}5\cdot10^{-2}$ \\
+Lagrangien augmenté & \textbf{5} & $1{,}8\cdot10^{-10}$ \\
+\bottomrule
+\end{tabular}
+\caption{Convergence vers la faisabilité. Pour le dual, $\|C\|_2^2 = 1{,}17\cdot10^5$ donc $L_d = 1{,}17\cdot10^7$ ; la prédiction est de $2{,}5\cdot10^{12}$ itérations.}
+\end{table}
+Le lagrangien augmenté satisfait les KKT à $10^{-8}$ près et atteint $\Phi - \Phi^\star = 8\cdot10^{-8}$ (avec $\Phi^\star = 2{,}08724$).
+
+\subsection{Effet des contraintes sur le test}
+Sans contrainte, le quantile $0{,}9$ dépasse le ciel clair sur $71\%$ des jours d'apprentissage et sur $665$ jours de test.
+Imposer les bornes et le non-croisement fait s'effondrer la prévision : $q_{0,5} = q_{0,9}$ en moyenne, pinball médian $0{,}74$ contre $0{,}32$,
+et couverture de l'intervalle $4{,}5\%$ contre $79\%$. Le problème n'est pas algorithmique : les KKT sont vérifiées. Quelques jours à fort écart pèsent sur tout le plan linéaire.
+Il s'agit d'une limite du modèle linéaire sur la cible brute, non d'un défaut d'optimisation. Le renforcement par marges
+($\delta_{nc} = 0{,}01$, $\delta_{ub} = 0{,}05$) ne corrige pas ce point.
+
+%% ------------------------------------------------------------------ AXE 4
+\section{Axe 4 : piste R3, prédiction conforme}\label{sec:ax4}
+\subsection{CQR}
+Soit $\hat q_{0,1}$ et $\hat q_{0,9}$ ajustés sur un sous-ensemble d'apprentissage propre, et $E_i = \max(\hat q_{0,1}(x_i) - y_i,\ y_i - \hat q_{0,9}(x_i))$ sur une calibration de taille $m$.
+On pose $Q$ le quantile d'ordre $\lceil (m+1)(1-\alpha)\rceil/m$ des $E_i$, et l'intervalle est $[\hat q_{0,1}-Q,\ \hat q_{0,9}+Q]$.
+
+\begin{theorem}[Couverture de CQR, Romano et al. 2019]
+Si $(X_i,Y_i)$ de la calibration et la nouvelle observation $(X,Y)$ sont échangeables, alors
+$\Pr\bigl(Y \in [\hat q_{0,1}(X) - Q,\ \hat q_{0,9}(X) + Q]\bigr) \ge 1-\alpha$.
+\end{theorem}
+\begin{proof}[Esquisse]
+Les scores $E_1,\dots,E_m,E$ sont échangeables, donc le rang de $E$ parmi eux est uniforme. L'événement $Y\in$ intervalle équivaut à $E \le Q$,
+et la définition de $Q$ à l'ordre $\lceil(m+1)(1-\alpha)\rceil$ donne $\Pr(E \le Q) \ge 1-\alpha$.
+\end{proof}
+
+\subsection{ACI}
+Gibbs et Candès (2021) mettent à jour $\alpha_{t+1} = \alpha_t + \gamma(\alpha - \mathrm{err}_t)$, avec $\mathrm{err}_t = \mathbf{1}\{Y_t \notin C_t\}$.
+La couverture moyenne satisfait
+\[
+\Bigl|\frac1T\sum_{t=1}^T \mathrm{err}_t - \alpha\Bigr| \le \frac{\max(\alpha, 1-\alpha) + \gamma}{\gamma T}.
+\]
+
+\subsection{Résultats (Monastir, 5 graines)}
+\begin{table}[h]\centering
+\begin{tabular}{lrr}
+\toprule
+Méthode & Couverture (cible 80\,\%) & Largeur (kWh/m$^2$/j) \\
+\midrule
+Brut (quantiles 0,1 et 0,9) & 78,7\,\% & 1,85 \\
+Gaussien ridge $\pm 1{,}28\sigma$ & 82,4\,\% & 2,18 \\
+CQR, calibration 1 an & 81,1\,\% $\pm$ 0,6 & 1,97 $\pm$ 0,02 \\
+ACI, $\gamma = 0{,}005$ & 80,0\,\% & 1,91 \\
+\bottomrule
+\end{tabular}
+\caption{Intervalles à 80\,\% sur le test (912 jours). Le gaussien sous-couvre au printemps (71\,\% en MAM).}
+\end{table}
+Calibrer sur 6 mois, 1 an ou 2 ans donne une couverture moyenne de 81,2\,\%, 81,1\,\% et 80,6\,\%, avec un écart-type qui baisse de 0,74 à 0,34 point.
+
+\subsection{Trois sites}
+CQR couvre 81,1\,\% à Monastir, 76,7\,\% à Tamanrasset et 83,5\,\% à Dakar. La garantie de CQR suppose l'échangeabilité entre calibration (2023) et test (2024--2026).
+À Tamanrasset, ce n'est pas vérifié : la couverture passe sous la cible avec un écart-type faible, ce qui indique un décalage systématique et non du bruit.
+Une calibration glissante, par ACI, est plus sûre dans ce cas.
+
+%% ------------------------------------------------------------------ RESULTATS & DISCUSSION
+\section{Résultats comparés et discussion}\label{sec:disc}
+\subsection{Classement des sites}\label{sec:classement}
+Le classement de difficulté, selon la RMSE du ridge, est Tamanrasset (0,709), Dakar (0,790), puis Monastir (0,939). Le même ordre vaut pour la médiane pinball et pour la largeur de l'intervalle.
+Il change pour la fiabilité des intervalles, où Tamanrasset est le plus mal calibré. Les largeurs sont exprimées en kWh/m$^2$/j : une largeur relative au niveau moyen serait plus juste pour comparer les sites.
+
+\subsection{Difficulté d'optimisation et de prévision}
+Dakar a le conditionnement le plus favorable ($\kappa = 398$) mais la descente à pas $1/L$ y est la plus lente (1\,319 itérations, contre 858 à Monastir).
+Le rapport observé/prédit passe de 0,22 à 0,48. Le conditionnement seul ne prédit donc pas la vitesse d'un site à l'autre : la répartition du spectre compte aussi.
+
+\subsection{Hypothèse D.1}
+Une hypothèse sur les sites les plus difficiles devait être formulée avant les essais. \textit{À compléter par le groupe, avec la date de rédaction.} Sans cette hypothèse datée, les résultats ne peuvent pas être présentés comme une confirmation.
+
+\subsection{Recommandation pour un nouveau site}
+Pour un exploitant, la méthode proposée est :
+\begin{enumerate}[itemsep=2pt]
+\item une prévision ponctuelle par ridge ($\lambda = 10^{-2}$), qui bat la prévision naïve sur les trois sites ;
+\item une régression quantile lissée, résolue par Newton amorti ;
+\item des intervalles CQR avec au moins un an de calibration récente pour les climats variables (BSh), et ACI pour les climats désertiques (BWh) où la calibration peut dériver ;
+\item l'imposition des bornes de ciel clair par lagrangien augmenté, mais non sur la valeur brute : nous recommandons de modéliser le ratio $k_t = \mathrm{ALLSKY}(t+1)/\mathrm{CLRSKY}(t+1)$.
+\end{enumerate}
+Ces conclusions reposent sur trois sites, dont deux de même type climatique, et une seule année de test. Elles doivent être confirmées avant généralisation.
+
+\subsection{Limites}
+\begin{itemize}[itemsep=2pt]
+\item Trois sites seulement ; deux sont de type BSh.
+\item Un seul test (912 jours, 2024--2026) ; pas de répétition sur plusieurs années.
+\item Les vitesses prédites sont des bornes au pire cas ; l'écart observé n'est pas expliqué au-delà du conditionnement.
+\item La contrainte de ciel clair sur la valeur brute dégrade fortement la prévision ; la piste du ratio n'est pas testée.
+\item Le lissage de Moreau introduit une erreur de l'ordre de $\varepsilon/2$ ; elle n'est pas corrigée dans les métriques de test.
+\item La garantie CQR n'est pas valable à Tamanrasset.
+\end{itemize}
+
+\subsection{Pistes d'approfondissement}
+La piste R3 est traitée. Les pistes R1 (apprentissage fédéré) et R2 (robustesse de Sagawa et al.) pourraient utiliser les trois sites comme exploitants, avec les mêmes variables.
+
+%% ------------------------------------------------------------------ CONCLUSION
+\section{Conclusion}
+Les quatre axes donnent une prévision probabiliste de l'irradiation journalière sur trois sites. Les algorithmes, écrits à la main, ont été vérifiés contre les
+références (scikit-learn, SciPy, cvxpy). Le ridge et la régression quantile lissée sont fiables et rapides. Les contraintes physiques sur la valeur brute
+ne sont pas adaptées au modèle linéaire, et la calibration CQR doit être contrôlée site par site.
+
+%% ------------------------------------------------------------------ REFERENCES
+\begin{thebibliography}{99}
+\bibitem{koenker1978} R. Koenker, G. Bassett. \emph{Regression Quantiles}. Econometrica, 46(1), 1978.
+\bibitem{koenker2005} R. Koenker. \emph{Quantile Regression}. Cambridge University Press, 2005.
+\bibitem{lacoste2012} S. Lacoste-Julien, M. Schmidt, F. Bach. \emph{A simpler approach to obtaining an O(1/t) convergence rate for projected stochastic subgradient descent}. arXiv:1212.2002, 2012.
+\bibitem{nemirovski1983} A. Nemirovski, D. Yudin. \emph{Problem Complexity and Method Efficiency in Optimization}. Wiley, 1983.
+\bibitem{romano2019} Y. Romano, E. Patterson, E. Candès. \emph{Conformalized Quantile Regression}. NeurIPS, 2019.
+\bibitem{gibbs2021} I. Gibbs, E. Candès. \emph{Adaptive Conformal Inference Under Distribution Shift}. NeurIPS, 2021.
+\bibitem{vovk2005} V. Vovk, A. Gammerman, G. Shafer. \emph{Algorithmic Learning in a Random World}. Springer, 2005.
+\bibitem{beck2018} H. E. Beck et al. \emph{Present and future Köppen-Geiger climate classification maps at 1-km resolution}. Scientific Data, 5, 2018.
+\bibitem{sagawa2020} S. Sagawa, P. W. Koh, T. B. Hashimoto, P. Liang. \emph{Distributionally Robust Neural Networks}. ICLR, 2020.
+\bibitem{nasapower} NASA POWER. \emph{Prediction Of Worldwide Energy Resources}. \url{https://power.larc.nasa.gov}.
+\end{thebibliography}
+
+\end{document}

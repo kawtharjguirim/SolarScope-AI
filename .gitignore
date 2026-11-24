@@ -1,0 +1,14 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+
+# Comptes utilisateurs (mots de passe hachés) : ne jamais publier
+users.json
+
+# Secrets Streamlit
+.streamlit/secrets.toml
+
+# Journaux et fichiers temporaires
+*.log
+*.output

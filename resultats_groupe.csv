@@ -1,0 +1,4 @@
+groupe,site,pays,lat,lon,zone_carte,zone_nasa,n_app,n_test,kappa,iter_pred,iter_obs,rmse_ridge,rmse_naif,pinball_q10,pinball_q50,pinball_q90,couv_q10,couv_q90,largeur,croisements_avant,borne_active,piste
+"kawthar jguirim, ons bel Hej Saleh, Mouheb Sayadi, yosr Bhouri, Mohamed Abidi",Monastir,Tunisie,35.78,10.83,BSh,BSh,3649,912,0.01,3895,858,0.9386,1.2044,0.20044,0.32252,0.10268,0.1228,0.9101,1.8486,0,0.0,R3
+"kawthar jguirim, ons bel Hej Saleh, Mouheb Sayadi, yosr Bhouri, Mohamed Abidi",Tamanrasset,Algerie,22.79,5.52,BWh,BWh,3649,912,0.01,3188,703,0.709,0.8027,0.14147,0.23883,0.08688,0.1316,0.9408,1.4413,0,0.0,R3
+"kawthar jguirim, ons bel Hej Saleh, Mouheb Sayadi, yosr Bhouri, Mohamed Abidi",Dakar,Senegal,14.69,-17.44,BSh,BSh,3649,912,0.01,2749,1319,0.7897,0.9514,0.16318,0.266,0.09252,0.1414,0.9232,1.5459,0,0.0,R3

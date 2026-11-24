@@ -1,0 +1,4 @@
+site,n_app,n_test,violation_train,iter_AL,croisements_apres,sorties_bornes_apres,pinball_moyen,couv_interval,largeur,jours_borne_active
+Monastir,3649,912,0.0,5,0,3,0.73616,0.045,0.2014,0.0
+Tamanrasset,3649,912,0.0,5,11,4,0.39918,0.0855,0.3459,0.0
+Dakar,3649,912,6.4e-07,3,40,4,0.34453,0.1546,0.5876,0.0
